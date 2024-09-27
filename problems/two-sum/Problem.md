@@ -21,7 +21,7 @@ Output
 Input
 
 ```
-1, 100
+0, 100
 ```
 
 Output
