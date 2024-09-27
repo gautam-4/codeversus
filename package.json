@@ -9,7 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.1.0",
     "axios": "^1.7.7",
+    "class-variance-authority": "^0.7.0",
     "cookies-next": "^4.2.1",
     "firebase": "^10.13.2",
     "lucide-react": "^0.441.0",
@@ -21,7 +23,8 @@
     "react-monaco-editor": "^0.56.1",
     "react-select": "^5.8.1",
     "react-syntax-highlighter": "^15.5.0",
-    "react-toastify": "^10.0.5"
+    "react-toastify": "^10.0.5",
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
     "postcss": "^8",

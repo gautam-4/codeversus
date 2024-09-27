@@ -90,6 +90,46 @@ export default function ProblemPage({ params }) {
         }
     };
 
+    const declareWinner = async () => {
+        try {
+            const battleRef = doc(db, '1v1-battles', params.id);
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            const opponentRef = doc(db, 'users', battleData.users.find(u => u.uid !== auth.currentUser.uid).uid);
+
+            const [userDoc, opponentDoc] = await Promise.all([
+                getDoc(userRef),
+                getDoc(opponentRef)
+            ]);
+
+            const userRating = userDoc.data().rating || 1500;
+            const opponentRating = opponentDoc.data().rating || 1500;
+
+            // Elo rating calculation
+            const expectedScore = 1 / (1 + Math.pow(10, (opponentRating - userRating) / 400));
+            const newRating = Math.round(userRating + 32 * (1 - expectedScore));
+            const opponentNewRating = Math.round(opponentRating + 32 * (0 - (1 - expectedScore)));
+
+            await updateDoc(battleRef, {
+                winner: auth.currentUser.uid,
+                status: 'completed',
+                newRatings: {
+                    [auth.currentUser.uid]: newRating,
+                    [battleData.users.find(u => u.uid !== auth.currentUser.uid).uid]: opponentNewRating
+                }
+            });
+
+            await Promise.all([
+                updateDoc(userRef, { rating: newRating }),
+                updateDoc(opponentRef, { rating: opponentNewRating })
+            ]);
+
+            // The winner handling will be done by the onSnapshot listener
+        } catch (error) {
+            console.error('Error declaring winner:', error);
+            toast.error('Failed to update battle result. Please try again.');
+        }
+    };
+
     const createSubmission = async (sourceCode, stdin) => {
         try {
             const response = await axios.post(JUDGE0_API, {
