@@ -1,33 +1,21 @@
-"use client";
+"use client"
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, db } from '@/firebaseConfig';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { fetchProblemList } from '@/utils/githubProblemFetcher';
+import Select from 'react-select';
 
 const ContestRoomPage = ({ params }) => {
   const router = useRouter();
   const [participants, setParticipants] = useState([]);
   const [isCreator, setIsCreator] = useState(false);
-  const [roomStatus, setRoomStatus] = useState('waiting');
-  const [problemList, setProblemList] = useState([]);
-
-  useEffect(() => {
-    const loadProblemList = async () => {
-      try {
-        const problems = await fetchProblemList();
-        setProblemList(problems);
-      } catch (error) {
-        console.error("Error fetching problem list:", error);
-        toast.error("Failed to load problems. Please try again later.");
-      }
-    };
-
-    loadProblemList();
-  }, []);
+  const [roomStatus, setRoomStatus] = useState('');
+  const [topics, setTopics] = useState([]);
+  const [selectedTopics, setSelectedTopics] = useState([]);
+  const [problemCount, setProblemCount] = useState(1);
 
   useEffect(() => {
     if (!auth.currentUser) {
@@ -41,16 +29,52 @@ const ContestRoomPage = ({ params }) => {
     const unsubscribe = onSnapshot(roomRef, (docSnapshot) => {
       if (docSnapshot.exists()) {
         const roomData = docSnapshot.data();
-        setIsCreator(roomData.createdBy === auth.currentUser.uid);
-        setRoomStatus(roomData.status || 'waiting');
-
-        // Set participants directly from the room data
+        const currentUserIsCreator = roomData.createdBy === auth.currentUser.uid;
+        console.log('Room Data:', roomData);
+        console.log('Room creator:', roomData.createdBy);
+        console.log('Current user:', auth.currentUser.uid);
+        console.log('Is creator:', currentUserIsCreator);
+        console.log('Room status from DB:', roomData.status);
+        setIsCreator(currentUserIsCreator);
+        setRoomStatus(roomData.status || 'not-started');
         setParticipants(roomData.users || []);
+        if (roomData.topics) setSelectedTopics(roomData.topics.map(topic => ({ value: topic, label: topic })));
+        if (roomData.numProblems) setProblemCount(roomData.numProblems);
+
+        // Redirect all users when contest is in progress
+        if (roomData.status === 'in-progress') {
+          console.log('Contest in progress, redirecting to problems page');
+          router.push(`/contest/room/${params.id}/problems`);
+        }
       } else {
         toast.error("Room not found");
         router.push('/contest');
       }
+    }, (error) => {
+      console.error("Error fetching room data:", error);
+      toast.error("Error fetching room data. Please try again.");
     });
+
+    // Fetch available topics
+    const fetchTopics = async () => {
+      try {
+        const topicsSet = new Set();
+        const problemsRef = collection(db, 'problems');
+        const problemsSnapshot = await getDocs(problemsRef);
+        problemsSnapshot.forEach(doc => {
+          const problemData = doc.data();
+          if (problemData.topics) {
+            problemData.topics.forEach(topic => topicsSet.add(topic));
+          }
+        });
+        setTopics(Array.from(topicsSet).map(topic => ({ value: topic, label: topic })));
+      } catch (error) {
+        console.error("Error fetching topics:", error);
+        toast.error("Failed to load topics. Please try again.");
+      }
+    };
+
+    fetchTopics();
 
     return () => unsubscribe();
   }, [params.id, router]);
@@ -61,22 +85,56 @@ const ContestRoomPage = ({ params }) => {
       return;
     }
 
+    if (selectedTopics.length === 0) {
+      toast.error("Please select at least one topic");
+      return;
+    }
+
     try {
       const roomRef = doc(db, "rooms", params.id);
+      
+      // Fetch problems based on selected topics
+      const problemsRef = collection(db, 'problems');
+      const q = query(problemsRef, where('topics', 'array-contains-any', selectedTopics.map(t => t.value)));
+      const problemsSnapshot = await getDocs(q);
+      const availableProblems = problemsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Randomly select problems
+      const selectedProblems = [];
+      for (let i = 0; i < problemCount; i++) {
+        if (availableProblems.length > 0) {
+          const randomIndex = Math.floor(Math.random() * availableProblems.length);
+          selectedProblems.push(availableProblems.splice(randomIndex, 1)[0]);
+        }
+      }
+
       await updateDoc(roomRef, {
         status: "in-progress",
         startedAt: new Date(),
+        topics: selectedTopics.map(t => t.value),
+        numProblems: problemCount,
+        problems: selectedProblems
       });
-      //toast.success("Contest started!");
 
-      const randomProblem = problemList[Math.floor(Math.random() * problemList.length)];
-
-      router.push(`/contest/room/${params.id}/${randomProblem.id}`);
+      console.log("Contest started successfully");
+      // The redirection will be handled by the useEffect hook
     } catch (error) {
       console.error("Error starting contest:", error);
       toast.error("Failed to start contest. Please try again.");
     }
   };
+
+  console.log('Rendering. Is creator:', isCreator, 'Room status:', roomStatus);
+
+  // If the room status is 'in-progress', we don't need to render the room setup UI
+  if (roomStatus === 'in-progress') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center">
+        <h1 className="text-2xl font-bold mb-4">Contest is in progress</h1>
+        <p>Redirecting to problems page...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start p-8">
@@ -99,21 +157,41 @@ const ContestRoomPage = ({ params }) => {
           )}
         </ul>
         
-        {isCreator && roomStatus === 'waiting' && (
-          <button
-            onClick={handleStartContest}
-            className="w-full bg-[#DEA03C] text-black px-4 py-2 rounded-lg hover:bg-[#c78f35] transition duration-300"
-          >
-            Start Contest
-          </button>
-        )}
-
-        {!isCreator && roomStatus === 'waiting' && (
-          <p className="text-white text-center">Waiting for the room creator to start the contest...</p>
-        )}
-        
-        {roomStatus === 'in-progress' && (
-          <p className="text-white text-center">Contest is in progress!</p>
+        {isCreator && roomStatus === 'not-started' ? (
+          <>
+            <div className="mb-4">
+              <label className="block text-white mb-2">Select Topics:</label>
+              <Select
+                isMulti
+                options={topics}
+                value={selectedTopics}
+                onChange={setSelectedTopics}
+                className="text-black"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-white mb-2">Number of Problems (1-4):</label>
+              <input
+                type="number"
+                min="1"
+                max="4"
+                value={problemCount}
+                onChange={(e) => setProblemCount(Math.min(4, Math.max(1, parseInt(e.target.value))))}
+                className="w-full px-3 py-2 text-black rounded"
+              />
+            </div>
+            <button
+              onClick={handleStartContest}
+              className="w-full bg-[#DEA03C] text-black px-4 py-2 rounded-lg hover:bg-[#c78f35] transition duration-300"
+            >
+              Start Contest
+            </button>
+          </>
+        ) : (
+          <p className="text-white text-center">
+            {isCreator ? "You are the room creator." : "You are a participant."} 
+            Waiting for the contest to start...
+          </p>
         )}
       </div>
     </div>

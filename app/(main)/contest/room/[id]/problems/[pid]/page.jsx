@@ -4,11 +4,17 @@ import { fetchProblemContent, fetchBoilerplate, fetchProblemStructure, fetchTest
 import CodeEditor from '@/components/CodeEditor';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
+import { auth, db } from '@/firebaseConfig';
+import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { useRouter } from 'next/navigation';
+import { toast } from 'react-toastify';
+import Link from 'next/link';
 
 const JUDGE0_API = '/api/judge0';
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default function ProblemPage({ params }) {
+    const router = useRouter();
     const [problemMd, setProblemMd] = useState('');
     const [boilerplate, setBoilerplate] = useState('');
     const [fullBoilerplate, setFullBoilerplate] = useState('');
@@ -18,19 +24,22 @@ export default function ProblemPage({ params }) {
     const [error, setError] = useState(null);
     const [code, setCode] = useState('');
     const [testResults, setTestResults] = useState([]);
+    const [timeLeft, setTimeLeft] = useState(90 * 60); // 90 minutes in seconds
+    const [contestStartTime, setContestStartTime] = useState(null);
 
     useEffect(() => {
-        async function fetchProblem() {
+        async function fetchProblemAndRoomData() {
             try {
-                const [md, initialCode, fullCode, structureData, cases] = await Promise.all([
-                    fetchProblemContent(params.id),
-                    fetchBoilerplate(params.id),
-                    fetchFullBoilerplate(params.id),
-                    fetchProblemStructure(params.id),
-                    fetchTestCases(params.id, 2).catch(err => {
+                const [md, initialCode, fullCode, structureData, cases, roomData] = await Promise.all([
+                    fetchProblemContent(params.pid),
+                    fetchBoilerplate(params.pid),
+                    fetchFullBoilerplate(params.pid),
+                    fetchProblemStructure(params.pid),
+                    fetchTestCases(params.pid, 2).catch(err => {
                         console.error('Error fetching test cases:', err);
-                        return []; // Return an empty array if test cases can't be fetched
-                    })
+                        return [];
+                    }),
+                    getDoc(doc(db, "rooms", params.id)).then(doc => doc.data())
                 ]);
 
                 setProblemMd(md);
@@ -39,18 +48,38 @@ export default function ProblemPage({ params }) {
                 setCode(initialCode);
                 setStructure(structureData);
                 setTestCases(cases);
+                setContestStartTime(roomData.startedAt.toDate());
                 setLoading(false);
             } catch (err) {
-                console.error('Failed to fetch problem:', err);
-                setError(`Failed to load problem. Error: ${err.message}`);
+                console.error('Failed to fetch problem or room data:', err);
+                setError(`Failed to load problem or room data. Error: ${err.message}`);
                 setLoading(false);
             }
         }
-        fetchProblem();
-    }, [params.id]);
+        fetchProblemAndRoomData();
+    }, [params.pid, params.id]);
+
+    useEffect(() => {
+        if (contestStartTime) {
+            const timer = setInterval(() => {
+                const now = new Date();
+                const diff = 90 * 60 - Math.floor((now - contestStartTime) / 1000);
+                if (diff <= 0) {
+                    clearInterval(timer);
+                    setTimeLeft(0);
+                    router.push(`/contest/room/${params.id}/leaderboard`);
+                } else {
+                    setTimeLeft(diff);
+                }
+            }, 1000);
+
+            return () => clearInterval(timer);
+        }
+    }, [contestStartTime, params.id, router]);
 
     const runCode = async () => {
         setTestResults([]);
+        let allTestsPassed = true;
         for (let i = 0; i < testCases.length; i++) {
             const testCase = testCases[i];
             try {
@@ -58,7 +87,6 @@ export default function ProblemPage({ params }) {
                     .replace('##USER_CODE_HERE##', code)
                     .replace('##INPUT_FILE_INDEX##', i.toString());
 
-                // Use the input directly from the test case
                 const submission = await createSubmission(fullCode, testCase.input);
                 if (!submission) {
                     throw new Error("Failed to create submission");
@@ -67,6 +95,7 @@ export default function ProblemPage({ params }) {
                 const result = await getSubmissionResult(submission.token);
 
                 const passed = result.status.description === "Accepted" && result.stdout.trim() === testCase.expectedOutput.trim();
+                if (!passed) allTestsPassed = false;
                 setTestResults(prev => [...prev, {
                     passed,
                     output: result.stdout || "No output",
@@ -75,10 +104,10 @@ export default function ProblemPage({ params }) {
                     error: result.stderr || (result.status.description !== "Accepted" ? result.status.description : "")
                 }]);
 
-                // Add a delay between submissions to respect rate limits
                 await delay(2000);
             } catch (error) {
                 console.error('Error in runCode:', error);
+                allTestsPassed = false;
                 setTestResults(prev => [...prev, {
                     passed: false,
                     error: error.message || "Unknown error occurred",
@@ -88,7 +117,70 @@ export default function ProblemPage({ params }) {
                 }]);
             }
         }
+
+        if (allTestsPassed) {
+            console.log("All tests passed. Updating user progress...");
+            await updateUserProgress();
+        } else {
+            console.log("Not all tests passed. Progress not updated.");
+        }
     };
+
+    const updateUserProgress = async () => {
+        if (!auth.currentUser) {
+            console.error("No authenticated user found");
+            toast.error("You must be logged in to update progress");
+            return;
+        }
+    
+        try {
+            const roomRef = doc(db, "rooms", params.id);
+            const roomDoc = await getDoc(roomRef);
+            if (!roomDoc.exists()) {
+                console.error("Room document not found");
+                toast.error("Contest room not found");
+                return;
+            }
+    
+            const roomData = roomDoc.data();
+            const userIndex = roomData.users.findIndex(user => user.uid === auth.currentUser.uid);
+            
+            if (userIndex === -1) {
+                console.error("User not found in room");
+                toast.error("You are not a participant in this contest");
+                return;
+            }
+    
+            const currentUser = roomData.users[userIndex];
+            const timeTaken = 90 * 60 - timeLeft;
+    
+            // Check if the problem is already solved
+            if (currentUser.solvedProblems && currentUser.solvedProblems.includes(params.pid)) {
+                console.log("Problem already solved by user");
+                toast.info("You've already solved this problem!");
+                return;
+            }
+    
+            // Create a new users array with the updated data
+            const updatedUsers = [...roomData.users];
+            updatedUsers[userIndex] = {
+                ...currentUser,
+                solvedProblems: [...(currentUser.solvedProblems || []), params.pid],
+                totalSolved: (currentUser.totalSolved || 0) + 1,
+                totalTimeTaken: (currentUser.totalTimeTaken || 0) + timeTaken
+            };
+    
+            // Update the entire users array
+            await updateDoc(roomRef, { users: updatedUsers });
+    
+            console.log("User progress updated successfully");
+            toast.success("Problem solved! Your progress has been updated.");
+        } catch (error) {
+            console.error("Error updating user progress:", error);
+            toast.error("Failed to update progress. Please try again.");
+        }
+    };
+
 
     const createSubmission = async (sourceCode, stdin) => {
         try {
@@ -133,12 +225,24 @@ export default function ProblemPage({ params }) {
         throw new Error('Timed out waiting for submission result');
     };
 
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
     if (loading) return <div className="text-center text-gray-300 py-20">Loading problem...</div>;
     if (error) return <div className="text-center text-red-500 py-20">{error}</div>;
 
     return (
         <div className="">
             <div className="max-w-7xl mx-auto bg-[#1a1a1a] rounded-lg shadow-lg overflow-hidden">
+                <div className="p-4 bg-[#2a2a2a] text-white flex justify-between items-center">
+                    <Link href={`/contest/room/${params.id}/problems`} className="text-[#DEA03C] hover:text-[#C89030]">
+                        ← Back to Problems
+                    </Link>                    
+                    <span className="font-bold">Time Left: </span>{formatTime(timeLeft)}
+                </div>
                 <div className="flex flex-col lg:flex-row">
                     <div className="lg:w-1/2 p-6 md:p-8 border-b lg:border-b-0 lg:border-r border-gray-700">
                         <h1 className="text-2xl md:text-3xl font-bold mb-6 text-[#DEA03C]">
