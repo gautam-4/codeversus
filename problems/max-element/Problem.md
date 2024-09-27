@@ -11,3 +11,18 @@ Input
 
 Output
 5
+
+
+#### Test case 2
+
+Input
+
+```
+5, 6
+```
+
+Output
+
+```
+30
+```
