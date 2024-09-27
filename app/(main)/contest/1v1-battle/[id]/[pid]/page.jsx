@@ -1,19 +1,14 @@
-"use client";
+"use client"
 import { useState, useEffect } from 'react';
 import { fetchProblemContent, fetchBoilerplate, fetchProblemStructure, fetchTestCases, fetchFullBoilerplate } from '@/utils/githubProblemFetcher';
 import CodeEditor from '@/components/CodeEditor';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
-import { useRouter } from 'next/navigation';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/firebaseConfig'; // Ensure you have the correct import for your Firestore config
 
 const JUDGE0_API = '/api/judge0';
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-export default function ProblemPage() {
-    const router = useRouter();
-    const { id } = router.query; // Get the problem ID from the router
+export default function ProblemPage({ params }) {
     const [problemMd, setProblemMd] = useState('');
     const [boilerplate, setBoilerplate] = useState('');
     const [fullBoilerplate, setFullBoilerplate] = useState('');
@@ -25,16 +20,14 @@ export default function ProblemPage() {
     const [testResults, setTestResults] = useState([]);
 
     useEffect(() => {
-        if (!id) return; // Ensure the ID is available
-
         async function fetchProblem() {
             try {
                 const [md, initialCode, fullCode, structureData, cases] = await Promise.all([
-                    fetchProblemContent(id),
-                    fetchBoilerplate(id),
-                    fetchFullBoilerplate(id),
-                    fetchProblemStructure(id),
-                    fetchTestCases(id, 4).catch(err => {
+                    fetchProblemContent(params.pid),
+                    fetchBoilerplate(params.pid),
+                    fetchFullBoilerplate(params.pid),
+                    fetchProblemStructure(params.pid),
+                    fetchTestCases(params.pid, 2).catch(err => {
                         console.error('Error fetching test cases:', err);
                         return []; // Return an empty array if test cases can't be fetched
                     })
@@ -53,11 +46,92 @@ export default function ProblemPage() {
                 setLoading(false);
             }
         }
-
         fetchProblem();
-    }, [id]);
+    }, [params.pid]);
 
-    // (remaining code for running code, creating submissions, etc.)
+    const runCode = async () => {
+        setTestResults([]);
+        for (let i = 0; i < testCases.length; i++) {
+            const testCase = testCases[i];
+            try {
+                const fullCode = fullBoilerplate
+                    .replace('##USER_CODE_HERE##', code)
+                    .replace('##INPUT_FILE_INDEX##', i.toString());
+
+                // Use the input directly from the test case
+                const submission = await createSubmission(fullCode, testCase.input);
+                if (!submission) {
+                    throw new Error("Failed to create submission");
+                }
+
+                const result = await getSubmissionResult(submission.token);
+
+                const passed = result.status.description === "Accepted" && result.stdout.trim() === testCase.expectedOutput.trim();
+                setTestResults(prev => [...prev, {
+                    passed,
+                    output: result.stdout || "No output",
+                    expected: testCase.expectedOutput,
+                    input: testCase.input,
+                    error: result.stderr || (result.status.description !== "Accepted" ? result.status.description : "")
+                }]);
+
+                // Add a delay between submissions to respect rate limits
+                await delay(2000);
+            } catch (error) {
+                console.error('Error in runCode:', error);
+                setTestResults(prev => [...prev, {
+                    passed: false,
+                    error: error.message || "Unknown error occurred",
+                    input: testCase.input,
+                    expected: testCase.expectedOutput,
+                    output: "No output due to error"
+                }]);
+            }
+        }
+    };
+
+    const createSubmission = async (sourceCode, stdin) => {
+        try {
+            const response = await axios.post(JUDGE0_API, {
+                source_code: sourceCode,
+                language_id: 54, // C++ (GCC 9.2.0)
+                stdin: stdin
+            });
+            if (response.data.error) {
+                throw new Error(response.data.error);
+            }
+            return response.data;
+        } catch (error) {
+            console.error('Error creating submission:', error);
+            throw new Error(error.response?.data?.error || error.message || 'Failed to create submission');
+        }
+    };
+
+    const getSubmissionResult = async (token) => {
+        let attempts = 0;
+        const maxAttempts = 10;
+        const pollingInterval = 2000; // 2 seconds
+
+        while (attempts < maxAttempts) {
+            try {
+                const response = await axios.get(`${JUDGE0_API}?token=${token}`);
+                if (response.data.error) {
+                    throw new Error(response.data.error);
+                }
+
+                if (response.data.status.id <= 2) { // 1: In Queue, 2: Processing
+                    await delay(pollingInterval);
+                    attempts++;
+                } else {
+                    return response.data;
+                }
+            } catch (error) {
+                console.error('Error fetching submission result:', error);
+                throw new Error(error.response?.data?.error || error.message || 'Failed to fetch submission result');
+            }
+        }
+        throw new Error('Timed out waiting for submission result');
+    };
 
     if (loading) return <div className="text-center text-gray-300 py-20">Loading problem...</div>;
     if (error) return <div className="text-center text-red-500 py-20">{error}</div>;
@@ -85,7 +159,7 @@ export default function ProblemPage() {
                                             <code className="bg-[#272727] px-1 rounded" {...props}>
                                                 {children}
                                             </code>
-                                        );
+                                        )
                                     }
                                 }}
                             >

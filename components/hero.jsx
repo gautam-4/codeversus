@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from 'next/navigation';
-import { auth } from '@/firebaseConfig';
+import { auth,db } from '@/firebaseConfig';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -12,6 +12,8 @@ import sideImg from "@/assets/side.svg";
 import heroImg from '@/assets/heroImg.svg';
 import { Swords } from 'lucide-react';
 import Overlay from "./overlay";
+// import { auth, db } from '@/firebaseConfig';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export default function Hero() {
     const [state, setState] = useState(false);
@@ -41,7 +43,26 @@ export default function Hero() {
     const handleGoogleSignIn = async () => {
         const provider = new GoogleAuthProvider();
         try {
-            await signInWithPopup(auth, provider);
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user;
+    
+            // Check if the user document already exists
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userDocRef);
+    
+            if (!userDoc.exists()) {
+                // If the user document doesn't exist, create it with initial rating
+                await setDoc(userDocRef, {
+                    email: user.email,
+                    displayName: user.displayName,
+                    rating: 1000,
+                    createdAt: new Date()
+                });
+                console.log("New user created with initial rating");
+            } else {
+                console.log("Existing user signed in");
+            }
+    
             setShowLoginPopup(false);
             router.push('/problems');
         } catch (error) {
@@ -49,7 +70,6 @@ export default function Hero() {
             toast.error("Failed to sign in. Please try again.");
         }
     };
-
     const handleLogout = async () => {
         try {
             await signOut(auth);
