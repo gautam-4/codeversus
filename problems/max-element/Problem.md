@@ -10,7 +10,10 @@ Input
 ```
 
 Output
+
+```
 5
+```
 
 
 #### Test case 2
