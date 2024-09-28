@@ -1,4 +1,4 @@
-public static int sum(int num1, int num2) {
+public static int maxElement(List<Integer> arr) {
     // Implementation goes here
     return result;
 }

@@ -1,39 +1,34 @@
-
-import java.io.*;
 import java.util.*;
 
 public class Main {
-    
+
     ##USER_CODE_HERE##
 
     public static void main(String[] args) {
-        String filePath = "/dev/problems/classroom/tests/inputs/##INPUT_FILE_INDEX##.txt"; 
-        List<String> lines = readLinesFromFile(filePath);
-        int size_arr = Integer.parseInt(lines.get(0).trim());
+        // Read input from standard input (stdin)
+        Scanner scanner = new Scanner(System.in);
+        List<Integer> arr = new ArrayList<>();
 
-        List<Integer> arr = new ArrayList<>(size_arr);
-
-        String[] inputStream = lines.get(1).trim().split("\s+");
-
-        for (String inputChar : inputStream)  {
-
-          arr.add(Integer.parseInt(inputChar));
-
+        // Read the number of elements in the list
+        if (scanner.hasNextInt()) {
+            int size = scanner.nextInt();
+            
+            // Read the elements
+            for (int i = 0; i < size; i++) {
+                if (scanner.hasNextInt()) {
+                    arr.add(scanner.nextInt());
+                } else {
+                    System.err.println("Insufficient input values.");
+                    return; // Exit with an error
+                }
+            }
+        } else {
+            System.err.println("Invalid size input.");
+            return; // Exit with an error
         }
 
+        // Call the classroom function
         int result = classroom(arr);
         System.out.println(result);
-    }
-    public static List<String> readLinesFromFile(String filePath) {
-        List<String> lines = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                lines.add(line);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return lines;
     }
 }
