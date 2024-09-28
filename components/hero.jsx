@@ -26,6 +26,7 @@ export default function Hero() {
         { title: "Contest", path: "/contest" },
         { title: "Roadmap", path: "/roadmap" },
         { title: "Profile", path: "/profile" },
+        { title: "Events", path: "/events" },
     ];
 
     useEffect(() => {
