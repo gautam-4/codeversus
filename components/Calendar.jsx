@@ -518,29 +518,32 @@ const Calendar = () => {
           <div className="py-10 text-2xl font-extrabold px-7">
             Calendar Events
           </div>
-          <ul className="space-y-4">
-            {currentEvents.length <= 0 && (
-              <div className="italic text-center">No Events Present</div>
-            )}
+          <div className="max-h-[70vh] overflow-y-auto">
+            <ul className="space-y-4">
+              {currentEvents.length <= 0 && (
+                <div className="italic text-center">No Events Present</div>
+              )}
 
-            {currentEvents.length > 0 &&
-              currentEvents.map((event) => (
-                <li
-                  className="border border-[#DEA03C] shadow px-4 py-2 rounded-md"
-                  key={event.id}
-                >
-                  <span className="text-white">{event.contestName || event.title}</span>
-                  <br />
-                  <label className="text-white">
-                    {formatDate(event.start, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </label>
-                </li>
-              ))}
-          </ul>
+              {currentEvents.length > 0 &&
+                currentEvents.map((event) => (
+                  <li
+                    className="border border-[#DEA03C] shadow px-4 py-2 rounded-md cursor-pointer hover:bg-[#1a1a1a]"
+                    key={event.id}
+                    onClick={() => handleEventClick({ event })}
+                  >
+                    <span className="text-white">{event.contestName || event.title}</span>
+                    <br />
+                    <label className="text-white">
+                      {formatDate(event.start, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </label>
+                  </li>
+                ))}
+            </ul>
+          </div>
         </div>
 
         <div className="w-9/12 mt-8">
