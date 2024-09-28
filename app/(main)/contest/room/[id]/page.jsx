@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -16,6 +16,15 @@ const ContestRoomPage = ({ params }) => {
   const [topics, setTopics] = useState([]);
   const [selectedTopics, setSelectedTopics] = useState([]);
   const [problemCount, setProblemCount] = useState(1);
+  const [difficulties, setDifficulties] = useState([]);
+  const [selectedDifficulties, setSelectedDifficulties] = useState([]);
+
+  // Available difficulty levels (you can modify or fetch these from the database if needed)
+  const difficultyOptions = [
+    { value: 'easy', label: 'Easy' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'hard', label: 'Hard' },
+  ];
 
   useEffect(() => {
     if (!auth.currentUser) {
@@ -25,16 +34,11 @@ const ContestRoomPage = ({ params }) => {
     }
 
     const roomRef = doc(db, "rooms", params.id);
-    
+
     const unsubscribe = onSnapshot(roomRef, (docSnapshot) => {
       if (docSnapshot.exists()) {
         const roomData = docSnapshot.data();
         const currentUserIsCreator = roomData.createdBy === auth.currentUser.uid;
-        console.log('Room Data:', roomData);
-        console.log('Room creator:', roomData.createdBy);
-        console.log('Current user:', auth.currentUser.uid);
-        console.log('Is creator:', currentUserIsCreator);
-        console.log('Room status from DB:', roomData.status);
         setIsCreator(currentUserIsCreator);
         setRoomStatus(roomData.status || 'not-started');
         setParticipants(roomData.users || []);
@@ -43,7 +47,6 @@ const ContestRoomPage = ({ params }) => {
 
         // Redirect all users when contest is in progress
         if (roomData.status === 'in-progress') {
-          console.log('Contest in progress, redirecting to problems page');
           router.push(`/contest/room/${params.id}/problems`);
         }
       } else {
@@ -85,17 +88,21 @@ const ContestRoomPage = ({ params }) => {
       return;
     }
 
-    if (selectedTopics.length === 0) {
-      toast.error("Please select at least one topic");
+    if (selectedTopics.length === 0 || selectedDifficulties.length === 0) {
+      toast.error("Please select at least one topic and one difficulty level");
       return;
     }
 
     try {
       const roomRef = doc(db, "rooms", params.id);
-      
-      // Fetch problems based on selected topics
+
+      // Fetch problems based on selected topics and difficulties
       const problemsRef = collection(db, 'problems');
-      const q = query(problemsRef, where('topics', 'array-contains-any', selectedTopics.map(t => t.value)));
+      const q = query(
+        problemsRef,
+        where('topics', 'array-contains-any', selectedTopics.map(t => t.value)),
+        where('difficulty', 'in', selectedDifficulties.map(d => d.value))
+      );
       const problemsSnapshot = await getDocs(q);
       const availableProblems = problemsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -112,29 +119,17 @@ const ContestRoomPage = ({ params }) => {
         status: "in-progress",
         startedAt: new Date(),
         topics: selectedTopics.map(t => t.value),
+        difficulties: selectedDifficulties.map(d => d.value),
         numProblems: problemCount,
         problems: selectedProblems
       });
 
-      console.log("Contest started successfully");
       // The redirection will be handled by the useEffect hook
     } catch (error) {
       console.error("Error starting contest:", error);
       toast.error("Failed to start contest. Please try again.");
     }
   };
-
-  console.log('Rendering. Is creator:', isCreator, 'Room status:', roomStatus);
-
-  // If the room status is 'in-progress', we don't need to render the room setup UI
-  if (roomStatus === 'in-progress') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center">
-        <h1 className="text-2xl font-bold mb-4">Contest is in progress</h1>
-        <p>Redirecting to problems page...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start p-8">
@@ -169,6 +164,18 @@ const ContestRoomPage = ({ params }) => {
                 className="text-black"
               />
             </div>
+
+            <div className="mb-4">
+              <label className="block text-white mb-2">Select Difficulty:</label>
+              <Select
+                isMulti
+                options={difficultyOptions}
+                value={selectedDifficulties}
+                onChange={setSelectedDifficulties}
+                className="text-black"
+              />
+            </div>
+
             <div className="mb-4">
               <label className="block text-white mb-2">Number of Problems (1-4):</label>
               <input
@@ -180,6 +187,7 @@ const ContestRoomPage = ({ params }) => {
                 className="w-full px-3 py-2 text-black rounded"
               />
             </div>
+
             <button
               onClick={handleStartContest}
               className="w-full bg-[#DEA03C] text-black px-4 py-2 rounded-lg hover:bg-[#c78f35] transition duration-300"
