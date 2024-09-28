@@ -1,11 +1,11 @@
 "use client"
 import { useState, useEffect } from 'react';
-import { fetchProblemContent, fetchBoilerplate, fetchProblemStructure, fetchTestCases, fetchFullBoilerplate } from '@/utils/githubProblemFetcher';
+import { fetchProblemContent, fetchProblemStructure, fetchTestCases, fetchAllBoilerplates } from '@/utils/githubProblemFetcher';
 import CodeEditor from '@/components/CodeEditor';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import { auth, db } from '@/firebaseConfig';
-import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-toastify';
 import Link from 'next/link';
@@ -13,16 +13,24 @@ import Link from 'next/link';
 const JUDGE0_API = '/api/judge0';
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+const LANGUAGES = {
+  cpp: { id: 54, name: 'C++', extension: 'cpp' },
+  java: { id: 62, name: 'Java', extension: 'java' },
+  javascript: { id: 63, name: 'JavaScript', extension: 'js' },
+  rust: { id: 73, name: 'Rust', extension: 'rs' }
+};
+
 export default function ProblemPage({ params }) {
     const router = useRouter();
     const [problemMd, setProblemMd] = useState('');
-    const [boilerplate, setBoilerplate] = useState('');
-    const [fullBoilerplate, setFullBoilerplate] = useState('');
+    const [boilerplate, setBoilerplate] = useState({});
+    const [fullBoilerplate, setFullBoilerplate] = useState({});
     const [structure, setStructure] = useState(null);
     const [testCases, setTestCases] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [code, setCode] = useState('');
+    const [selectedLanguage, setSelectedLanguage] = useState('cpp');
     const [testResults, setTestResults] = useState([]);
     const [timeLeft, setTimeLeft] = useState(90 * 60); // 90 minutes in seconds
     const [contestStartTime, setContestStartTime] = useState(null);
@@ -30,25 +38,26 @@ export default function ProblemPage({ params }) {
     useEffect(() => {
         async function fetchProblemAndRoomData() {
             try {
-                const [md, initialCode, fullCode, structureData, cases, roomData] = await Promise.all([
+                const [md, structureData, cases, roomData, allBoilerplates] = await Promise.all([
                     fetchProblemContent(params.pid),
-                    fetchBoilerplate(params.pid),
-                    fetchFullBoilerplate(params.pid),
                     fetchProblemStructure(params.pid),
                     fetchTestCases(params.pid, 2).catch(err => {
                         console.error('Error fetching test cases:', err);
                         return [];
                     }),
-                    getDoc(doc(db, "rooms", params.id)).then(doc => doc.data())
+                    getDoc(doc(db, "rooms", params.id)).then(doc => doc.data()),
+                    fetchAllBoilerplates(params.pid)
                 ]);
 
                 setProblemMd(md);
-                setBoilerplate(initialCode);
-                setFullBoilerplate(fullCode);
-                setCode(initialCode);
                 setStructure(structureData);
                 setTestCases(cases);
                 setContestStartTime(roomData.startedAt.toDate());
+
+                setBoilerplate(allBoilerplates.boilerplates);
+                setFullBoilerplate(allBoilerplates.fullBoilerplates);
+                setCode(allBoilerplates.boilerplates.cpp || ''); // Set default to C++
+
                 setLoading(false);
             } catch (err) {
                 console.error('Failed to fetch problem or room data:', err);
@@ -77,17 +86,23 @@ export default function ProblemPage({ params }) {
         }
     }, [contestStartTime, params.id, router]);
 
+    const handleLanguageChange = (event) => {
+        const newLanguage = event.target.value;
+        setSelectedLanguage(newLanguage);
+        setCode(boilerplate[newLanguage] || '');
+    };
+
     const runCode = async () => {
         setTestResults([]);
         let allTestsPassed = true;
         for (let i = 0; i < testCases.length; i++) {
             const testCase = testCases[i];
             try {
-                const fullCode = fullBoilerplate
+                const fullCode = fullBoilerplate[selectedLanguage]
                     .replace('##USER_CODE_HERE##', code)
                     .replace('##INPUT_FILE_INDEX##', i.toString());
 
-                const submission = await createSubmission(fullCode, testCase.input);
+                const submission = await createSubmission(fullCode, testCase.input, LANGUAGES[selectedLanguage].id);
                 if (!submission) {
                     throw new Error("Failed to create submission");
                 }
@@ -181,12 +196,11 @@ export default function ProblemPage({ params }) {
         }
     };
 
-
-    const createSubmission = async (sourceCode, stdin) => {
+    const createSubmission = async (sourceCode, stdin, languageId) => {
         try {
             const response = await axios.post(JUDGE0_API, {
                 source_code: sourceCode,
-                language_id: 54, // C++ (GCC 9.2.0)
+                language_id: languageId,
                 stdin: stdin
             });
             if (response.data.error) {
@@ -249,32 +263,30 @@ export default function ProblemPage({ params }) {
                             {structure?.['Problem Name'] || 'Problem'}
                         </h1>
                         <div className="prose prose-invert max-w-none">
-                            <ReactMarkdown
-                                components={{
-                                    code({ node, inline, className, children, ...props }) {
-                                        const match = /language-(\w+)/.exec(className || '');
-                                        return !inline && match ? (
-                                            <div className="bg-[#272727] rounded-md px-3 py-8 my-4">
-                                                <code className={className} {...props}>
-                                                    {children}
-                                                </code>
-                                            </div>
-                                        ) : (
-                                            <code className="bg-[#272727] px-1 rounded" {...props}>
-                                                {children}
-                                            </code>
-                                        )
-                                    }
-                                }}
-                            >
+                            <ReactMarkdown>
                                 {problemMd || 'No problem description available.'}
                             </ReactMarkdown>
                         </div>
                     </div>
                     <div className="lg:w-1/2 p-6 md:p-8">
+                        <div className="mb-4">
+                            {/* <label htmlFor="language-select" className="block text-sm font-medium text-gray-300 mb-2">
+                                Select Language:
+                            </label> */}
+                            <select
+                                id="language-select"
+                                value={selectedLanguage}
+                                onChange={handleLanguageChange}
+                                className="bg-[#2a2a2a] text-white border border-gray-600 rounded-md p-2 w-full"
+                            >
+                                {Object.entries(LANGUAGES).map(([key, lang]) => (
+                                    <option key={key} value={key}>{lang.name}</option>
+                                ))}
+                            </select>
+                        </div>
                         <CodeEditor
-                            language="cpp"
-                            initialCode={boilerplate || '// No boilerplate code available'}
+                            language={selectedLanguage}
+                            initialCode={code}
                             onChange={setCode}
                         />
                         <div className="flex justify-end space-x-3 mt-6">

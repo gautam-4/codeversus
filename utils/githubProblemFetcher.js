@@ -3,6 +3,13 @@ import axios from 'axios';
 
 const API_BASE_URL = '/api/github-proxy';
 
+const LANGUAGE_EXTENSIONS = {
+  cpp: 'cpp',
+  java: 'java',
+  javascript: 'js',
+  rust: 'rs'
+};
+
 export async function fetchProblemList() {
     const response = await fetchProblemFromGithub('problems');
     
@@ -31,8 +38,9 @@ export async function fetchProblemContent(problemId) {
     return await fetchProblemFromGithub(`problems/${problemId}/Problem.md`);
 }
 
-export async function fetchBoilerplate(problemId) {
-    return await fetchProblemFromGithub(`problems/${problemId}/boilerplate/function.cpp`);
+export async function fetchBoilerplate(problemId, language = 'cpp') {
+    const extension = LANGUAGE_EXTENSIONS[language] || 'cpp';
+    return await fetchProblemFromGithub(`problems/${problemId}/boilerplate/function.${extension}`);
 }
 
 export async function fetchTestCases(problemId, limit = 3) {
@@ -82,6 +90,26 @@ export async function fetchProblemStructure(problemId) {
     return structure;
 }
 
-export async function fetchFullBoilerplate(problemId) {
-    return await fetchProblemFromGithub(`problems/${problemId}/boilerplate-full/function.cpp`);
+export async function fetchFullBoilerplate(problemId, language = 'cpp') {
+    const extension = LANGUAGE_EXTENSIONS[language] || 'cpp';
+    return await fetchProblemFromGithub(`problems/${problemId}/boilerplate-full/function.${extension}`);
+}
+
+export async function fetchAllBoilerplates(problemId) {
+    const boilerplates = {};
+    const fullBoilerplates = {};
+
+    for (const language of Object.keys(LANGUAGE_EXTENSIONS)) {
+        try {
+            boilerplates[language] = await fetchBoilerplate(problemId, language);
+            fullBoilerplates[language] = await fetchFullBoilerplate(problemId, language);
+        } catch (error) {
+            console.error(`Error fetching boilerplate for ${language}:`, error);
+            // If a language is not available, set it to an empty string
+            boilerplates[language] = '';
+            fullBoilerplates[language] = '';
+        }
+    }
+
+    return { boilerplates, fullBoilerplates };
 }
