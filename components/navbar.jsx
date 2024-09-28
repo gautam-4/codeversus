@@ -15,7 +15,6 @@ export default function Navbar() {
         { title: "Problems", path: "/problems" },
         { title: "Contest", path: "/contest" },
         { title: "Roadmap", path: "/roadmap" },
-        { title: "Profile", path: "/profile" },
         { title: "Events", path: "/events" },
     ];
 
