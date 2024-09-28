@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect } from 'react';
 import { fetchProblemContent, fetchProblemStructure, fetchTestCases, fetchAllBoilerplates } from '@/utils/githubProblemFetcher';
-import CodeEditor from '@/components/CodeEditor';
+import CodeEditor from '@/components/codeEditor';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import { auth, db } from '@/firebaseConfig';
