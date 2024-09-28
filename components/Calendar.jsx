@@ -12,21 +12,57 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const EventCard = ({ event }) => {
+const EventCard = ({ event, onClose }) => {
+  if (!event) return null;
+
   return (
-    <div className="bg-[#222222] text-[#DEA03C] rounded-lg p-4 shadow-md w-full max-w-md mx-auto mt-5">
-      <h3 className="text-xl font-bold">{event.contestName}</h3>
-      <p><strong>Time:</strong> {event.time}</p>
-      <p><strong>Date:</strong> {event.date}</p>
-      <p><strong>Duration:</strong> {event.duration}</p>
-      <p><strong>Platform:</strong> {event.platform}</p>
-      <a href={event.link} target="_blank" className="text-blue-500 underline">View Contest</a>
-    </div>
+    <Dialog open={!!event} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{event.contestName || event.title}</DialogTitle>
+        </DialogHeader>
+        <div className="bg-[#222222] text-[#DEA03C] rounded-lg p-4 shadow-md">
+          <p><strong>Time:</strong> {event.time || formatDate(event.start, { hour: 'numeric', minute: 'numeric' })}</p>
+          <p><strong>Date:</strong> {event.date || formatDate(event.start, { year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
+          <p><strong>Duration:</strong> {event.duration || 'Not specified'}</p>
+          <p><strong>Platform:</strong> {event.platform || 'Not specified'}</p>
+          {event.link && <a href={event.link} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">View Contest</a>}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 
 const Calendar = () => {
-  const [currentEvents, setCurrentEvents] = useState([]);
+  const defaultEvents = [
+    {
+      id: '1',
+      title: 'Weekly Contest 413',
+      start: new Date(2024, 8, 1, 8, 0), // September 1, 2024, 8:00 AM
+      end: new Date(2024, 8, 1, 9, 30),
+      contestName: 'Weekly Contest 413',
+      time: '8:00 AM- 9:30 AM',
+      date: '2024-09-01',
+      duration: '1 hrs 30 mins',
+      link: 'https://leetcode.com/contest/weekly-contest-413/',
+      platform: 'LeetCode'
+    },
+    // ... (include all your default events here)
+    {
+      id: '32',
+      title: 'KEYENCE Programming Contest 2024（AtCoder Beginner Contest 374）',
+      start: new Date(2024, 9, 5, 17, 30), // October 5, 2024, 5:30 PM
+      end: new Date(2024, 9, 5, 19, 10),
+      contestName: 'KEYENCE Programming Contest 2024（AtCoder Beginner Contest 374）',
+      time: '5:30 PM- 7:10 PM',
+      date: '2024-10-05',
+      duration: '1 hrs 40 mins',
+      link: 'https://atcoder.jp/contests/abc374',
+      platform: 'AtCoder'
+    }
+  ];
+
+  const [currentEvents, setCurrentEvents] = useState(defaultEvents);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [newEvent, setNewEvent] = useState({
     id: "",
@@ -47,6 +83,8 @@ const Calendar = () => {
       const savedEvents = localStorage.getItem("events");
       if (savedEvents) {
         setCurrentEvents(JSON.parse(savedEvents));
+      } else {
+        setCurrentEvents(defaultEvents);
       }
     }
   }, []);
@@ -78,16 +116,16 @@ const Calendar = () => {
       title: event.title,
       start: event.start,
       end: event.end,
-      contestName: event.extendedProps.contestName || "",
-      time: event.extendedProps.time || "",
+      contestName: event.extendedProps.contestName || event.title,
+      time: event.extendedProps.time || formatDate(event.start, { hour: 'numeric', minute: 'numeric' }),
       date: formatDate(event.start, {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
       }),
-      duration: event.extendedProps.duration || "",
-      link: event.extendedProps.link || "",
-      platform: event.extendedProps.platform || "",
+      duration: event.extendedProps.duration || 'Not specified',
+      link: event.extendedProps.link || '',
+      platform: event.extendedProps.platform || event.title,
     });
   };
 
@@ -100,6 +138,7 @@ const Calendar = () => {
         ...newEvent,
         title: newEvent.platform, // Title is now the platform name
       });
+      setCurrentEvents([...currentEvents, newEvent]);
       setNewEvent({
         id: "",
         title: "",
@@ -120,6 +159,10 @@ const Calendar = () => {
     setNewEvent((prev) => ({ ...prev, [name]: value }));
   };
 
+  const closeEventCard = () => {
+    setSelectedEvent(null);
+  };
+
   return (
     <div className="bg-[#0f0f0f] text-[#DEA03C] min-h-screen">
       <div className="flex w-full px-10 justify-start items-start gap-8">
@@ -138,7 +181,7 @@ const Calendar = () => {
                   className="border border-[#DEA03C] shadow px-4 py-2 rounded-md"
                   key={event.id}
                 >
-                  <span className="text-white">{event.extendedProps.contestName}</span>
+                  <span className="text-white">{event.contestName || event.title}</span>
                   <br />
                   <label className="text-white">
                     {formatDate(event.start, {
@@ -166,16 +209,28 @@ const Calendar = () => {
             editable={true}
             selectable={true}
             selectMirror={true}
-            dayMaxEvents={true}
+            dayMaxEvents={3}
             select={handleDateClick}
             eventClick={handleEventClick}
             eventsSet={(events) => setCurrentEvents(events)}
-            initialEvents={
-              typeof window !== "undefined"
-                ? JSON.parse(localStorage.getItem("events") || "[]")
-                : []
-            }
+            initialEvents={currentEvents}
             displayEventTime={false}
+            eventContent={(eventInfo) => (
+              <div className="flex items-center overflow-hidden w-full">
+                <div className="w-2 h-2 bg-blue-500 rounded-full mr-2 flex-shrink-0"></div>
+                <div className="truncate text-xs">
+                  {eventInfo.event.title}
+                  {eventInfo.event.extendedProps.contestName && (
+                    <span className="ml-1">
+                      ({eventInfo.event.extendedProps.contestName})
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            dayCellDidMount={(args) => {
+              args.el.classList.add('overflow-y-auto', 'max-h-full');
+            }}
           />
         </div>
       </div>
@@ -282,7 +337,7 @@ const Calendar = () => {
         </DialogContent>
       </Dialog>
 
-      {selectedEvent && <EventCard event={selectedEvent} />}
+      <EventCard event={selectedEvent} onClose={closeEventCard} />
     </div>
   );
 };
