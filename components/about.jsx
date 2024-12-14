@@ -1,4 +1,4 @@
-import React from 'react';
+import React from 'react'; 
 import { Users, Crosshair, Trophy, Star } from 'lucide-react';
 import CornerSVG from './cornersvg';
 import Link from 'next/link';
